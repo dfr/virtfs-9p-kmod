@@ -477,7 +477,6 @@ static driver_t vt9p_drv = {
 	vt9p_mthds,
 	sizeof(struct vt9p_softc)
 };
-static devclass_t vt9p_class;
 
 static int
 vt9p_modevent(module_t mod, int type, void *unused)
@@ -502,7 +501,7 @@ vt9p_modevent(module_t mod, int type, void *unused)
 	return (error);
 }
 
-DRIVER_MODULE(vt9p, virtio_pci, vt9p_drv, vt9p_class,
+DRIVER_MODULE(virtio_9pnet, virtio_pci, vt9p_drv,
     vt9p_modevent, 0);
-MODULE_VERSION(vt9p, 1);
-MODULE_DEPEND(vt9p, virtio, 1, 1, 1);
+MODULE_VERSION(virtio_9pnet, 1);
+MODULE_DEPEND(virtio_9pnet, virtio, 1, 1, 1);

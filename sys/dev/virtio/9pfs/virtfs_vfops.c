@@ -602,4 +602,4 @@ struct vfsops virtfs_vfsops = {
 VFS_SET(virtfs_vfsops, virtfs, VFCF_JAIL);
 MODULE_VERSION(vtfs, 1);
 MODULE_DEPEND(vtfs, virtio, 1, 1, 1);
-MODULE_DEPEND(vtfs, vt9p, 1, 1, 1);
+MODULE_DEPEND(vtfs, virtio_9pnet, 1, 1, 1);
