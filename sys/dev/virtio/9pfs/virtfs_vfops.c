@@ -98,6 +98,10 @@ virtfs_dispose_node(struct virtfs_node **npp)
 	if (node == NULL)
 		return;
 
+	if (node->parent && node->parent != node) {
+		vrele(VIRTFS_NTOV(node->parent));
+	}
+
 	p9_debug(VOPS, "dispose_node: %p\n", *npp);
 
 	vp = VIRTFS_NTOV(node);
@@ -315,6 +319,7 @@ virtfs_vget_common(struct mount *mp, struct virtfs_node *np, int flags,
 		VIRTFS_VOFID_LOCK_INIT(np);
 		STAILQ_INIT(&np->vofid_list);
 
+		vref(VIRTFS_NTOV(parent));
 		np->parent = parent;
 		np->virtfs_ses = vses; /* Map the current session */
 		inode = &np->inode;

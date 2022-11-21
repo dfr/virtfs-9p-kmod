@@ -140,9 +140,19 @@ virtfs_prepare_to_close(struct mount *mp)
 {
 	struct virtfs_session *vses;
 	struct virtfs_mount *vmp;
+	struct virtfs_node *np, *pnp, *tmp;
 
 	vmp = VFSTOP9(mp);
 	vses = &vmp->virtfs_session;
+
+	/* break the node->parent references */
+	STAILQ_FOREACH_SAFE(np, &vses->virt_node_list, virtfs_node_next, tmp) {
+		if (np->parent && np->parent != np) {
+			pnp = np->parent;
+			np->parent = NULL;
+			vrele(VIRTFS_NTOV(pnp));
+		}
+	}
 
 	/* We are about to teardown, we dont allow anything other than clunk after this.*/
 	p9_client_begin_disconnect(vses->clnt);
