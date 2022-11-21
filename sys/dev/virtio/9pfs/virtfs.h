@@ -173,7 +173,7 @@ u_quad_t virtfs_pow2_filesize_to_bytes(uint64_t filesize, uint64_t bsize);
 /* These are all the VIRTFS specific vops */
 int virtfs_stat_vnode_l(void);
 int virtfs_stat_vnode_dotl(struct p9_stat_dotl *st, struct vnode *vp);
-int virtfs_reload_stats_dotl(struct vnode *vp);
+int virtfs_reload_stats_dotl(struct vnode *vp, struct ucred *cred);
 int virtfs_proto_dotl(struct virtfs_session *vses);
 struct p9_fid *virtfs_init_session(struct mount *mp, int *error);
 void virtfs_close_session(struct mount *mp);
@@ -191,8 +191,6 @@ void virtfs_fid_remove(struct virtfs_node *np, struct p9_fid *vfid,
     int fid_type);
 void virtfs_fid_add(struct virtfs_node *np, struct p9_fid *fid,
     int fid_type);
-struct p9_fid *virtfs_get_fid_from_uid(struct virtfs_node *np,
-    uid_t uid, int fid_type);
 struct p9_fid *virtfs_get_fid(struct p9_client *clnt,
-    struct virtfs_node *np, int fid_type, int *error);
+    struct virtfs_node *np, struct ucred *cred, int fid_type, int *error);
 #endif /* __VIRTFS__ */

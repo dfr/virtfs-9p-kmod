@@ -242,7 +242,7 @@ virtfs_lookup(struct vop_lookup_args *ap)
 		return (error);
 
 	/* Do the directory walk on host to check if file exist */
-	dvfid = virtfs_get_fid(vses->clnt, dnp, VFID, &error);
+	dvfid = virtfs_get_fid(vses->clnt, dnp, cnp->cn_cred, VFID, &error);
 	if (error)
 		return error;
 
@@ -473,7 +473,7 @@ create_common(struct virtfs_node *dnp, struct componentname *cnp,
 	newfid = NULL;
 	error = 0;
 
-	dvfid = virtfs_get_fid(vses->clnt, dnp, VFID, &error);
+	dvfid = virtfs_get_fid(vses->clnt, dnp, cnp->cn_cred, VFID, &error);
 	if (error != 0)
 		return error;
 
@@ -699,7 +699,7 @@ virtfs_open(struct vop_open_args *ap)
 	if (vp->v_type != VREG && vp->v_type != VDIR && vp->v_type != VLNK)
 		return (EOPNOTSUPP);
 
-	error = virtfs_reload_stats_dotl(vp);
+	error = virtfs_reload_stats_dotl(vp, ap->a_cred);
 	if (error != 0)
 		return (error);
 
@@ -715,7 +715,7 @@ virtfs_open(struct vop_open_args *ap)
 		np->flags &= ~VIRTFS_NODE_MODIFIED;
 	}
 
-	vfid = virtfs_get_fid(vses->clnt, np, VFID, &error);
+	vfid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VFID, &error);
 	if (error != 0)
 		return error;
 
@@ -724,7 +724,7 @@ virtfs_open(struct vop_open_args *ap)
 	 * count and return. If not found clone a new fid and open the file using
 	 * that cloned fid.
 	 */
-	vofid = virtfs_get_fid(vses->clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, &error);
 	if (vofid != NULL) {
 		vofid->v_opens++;
 		return (0);
@@ -779,7 +779,7 @@ virtfs_close(struct vop_close_args *ap)
 
 	p9_debug(VOPS, "%s(file_name %s)\n", __func__, np->inode.i_name);
 
-	vofid = virtfs_get_fid(vses->clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, &error);
 	if (vofid == NULL)
 		return (0);
 
@@ -839,7 +839,7 @@ virtfs_access(struct vop_access_args *ap)
 	p9_debug(VOPS,"virtfs_access \n");
 
 	/* make sure getattr is working correctly and is defined.*/
-	error = VOP_GETATTR(vp, &vap, NULL);
+	error = VOP_GETATTR(vp, &vap, cred);
 	if (error != 0)
 		return (error);
 
@@ -864,7 +864,7 @@ virtfs_access(struct vop_access_args *ap)
  * in VirtFS node.
  */
 int
-virtfs_reload_stats_dotl(struct vnode *vp)
+virtfs_reload_stats_dotl(struct vnode *vp, struct ucred *cred)
 {
 	struct p9_stat_dotl *stat;
 	int error;
@@ -876,7 +876,7 @@ virtfs_reload_stats_dotl(struct vnode *vp)
 	node = VIRTFS_VTON(vp);
 	vses = node->virtfs_ses;
 
-	vfid = virtfs_get_fid(vses->clnt, node, VFID, &error);
+	vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, &error);
 	if (error)
 		return error;
 
@@ -924,7 +924,7 @@ virtfs_getattr_dotl(struct vop_getattr_args *ap)
 	p9_debug(VOPS, "getattr %u %u\n", inode->i_mode, IFTOVT(inode->i_mode));
 
 	/* Reload our stats once to get the right values.*/
-	error = virtfs_reload_stats_dotl(vp);
+	error = virtfs_reload_stats_dotl(vp, ap->a_cred);
 	if (error != 0) {
 		p9_debug(ERROR, "virtfs_reload_stats_dotl failed %d\n", error);
 		return (error);
@@ -1285,7 +1285,7 @@ virtfs_setattr_dotl(struct vop_setattr_args *ap)
 			    P9PROTO_SETATTR_MTIME_SET;
 	}
 
-	vfid = virtfs_get_fid(vses->clnt, node, VFID, &error);
+	vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, &error);
 	if (error)
 		goto out;
 	/* Write the inode structure values into p9attr */
@@ -1345,7 +1345,7 @@ virtfs_read(struct vop_read_args *ap)
 	if (uio->uio_offset < 0)
 		return (EINVAL);
 
-	vofid = virtfs_get_fid(vses->clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, &error);
 	if (vofid == NULL) {
 		p9_debug(ERROR, "Reading with NULL FID\n");
 		return EBADF;
@@ -1429,7 +1429,7 @@ virtfs_write(struct vop_write_args *ap)
 	error = 0;
 	ioflag = ap->a_ioflag;
 
-	vofid = virtfs_get_fid(vses->clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, &error);
 	if (vofid == NULL) {
 		p9_debug(ERROR, "Writing with NULL FID\n");
 		return EBADF;
@@ -1508,7 +1508,7 @@ out:
  * After that, does a node metadata cleanup on client side.
  */
 static int
-remove_common(struct virtfs_node *np)
+remove_common(struct virtfs_node *np, struct ucred *cred)
 {
 	int error;
 	struct virtfs_session *vses;
@@ -1519,7 +1519,7 @@ remove_common(struct virtfs_node *np)
 	vses = np->virtfs_ses;
 	vp = VIRTFS_NTOV(np);
 
-	vfid = virtfs_get_fid(vses->clnt, np, VFID, &error);
+	vfid = virtfs_get_fid(vses->clnt, np, cred, VFID, &error);
 	if (error != 0)
 		return error;
 
@@ -1561,7 +1561,7 @@ virtfs_remove(struct vop_remove_args *ap)
 	if (vp->v_type == VDIR)
 		return (EISDIR);
 
-	error = remove_common(np);
+	error = remove_common(np, ap->a_cnp->cn_cred);
 	if (error == 0)
 		VIRTFS_DECR_LINKS(dinode);
 
@@ -1587,7 +1587,7 @@ virtfs_rmdir(struct vop_rmdir_args *ap)
 
 	p9_debug(VOPS, "%s: vp %p node %p \n", __func__, vp, np);
 
-	error = remove_common(np);
+	error = remove_common(np, ap->a_cnp->cn_cred);
 	if (error == 0)
 		VIRTFS_DECR_LINKS(dinode);
 
@@ -1636,7 +1636,7 @@ virtfs_symlink(struct vop_symlink_args *ap)
 	tmpchr = cnp->cn_nameptr[cnp->cn_namelen];
 	cnp->cn_nameptr[cnp->cn_namelen] = '\0';
 
-	dvfid = virtfs_get_fid(vses->clnt, dnp, VFID, &error);
+	dvfid = virtfs_get_fid(vses->clnt, dnp, cnp->cn_cred, VFID, &error);
 	if (error != 0)
 		goto out;
 
@@ -1696,10 +1696,10 @@ virtfs_link(struct vop_link_args *ap)
 	p9_debug(VOPS,"virtfs_hardlink\n");
 	p9_debug(VOPS, "%s: tdvp %p vp %p\n", __func__, tdvp, vp);
 
-	dvfid = virtfs_get_fid(vses->clnt, dnp, VFID, &error);
+	dvfid = virtfs_get_fid(vses->clnt, dnp, cnp->cn_cred, VFID, &error);
 	if (error != 0)
 		return error;
-	oldvfid = virtfs_get_fid(vses->clnt, np, VFID, &error);
+	oldvfid = virtfs_get_fid(vses->clnt, np, cnp->cn_cred, VFID, &error);
 	if (error != 0)
 		return error;
 
@@ -1732,7 +1732,7 @@ virtfs_readlink(struct vop_readlink_args *ap)
 
 	p9_debug(VOPS, "virtfs_readlink \n");
 
-	dvfid = virtfs_get_fid(vses->clnt, dnp, VFID, &error);
+	dvfid = virtfs_get_fid(vses->clnt, dnp, ap->a_cred, VFID, &error);
 	if (error != 0)
 		return error;
 
@@ -1782,7 +1782,7 @@ virtfs_readdir(struct vop_readdir_args *ap)
 	if (vp->v_type != VDIR)
 		return (ENOTDIR);
 
-	vofid = virtfs_get_fid(clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(clnt, np, ap->a_cred, VOFID, &error);
 	if (vofid == NULL) {
 		p9_debug(ERROR, "Reading with NULL FID\n");
 		return EBADF;
@@ -1891,7 +1891,7 @@ virtfs_strategy(struct vop_strategy_args *ap)
 	np = VIRTFS_VTON(vp);
 	vses = np->virtfs_ses;
 
-	vofid = virtfs_get_fid(vses->clnt, np, VOFID, &error);
+	vofid = virtfs_get_fid(vses->clnt, np, bp->b_iocmd == BIO_READ ? bp->b_rcred : bp->b_wcred, VOFID, &error);
 	if (vofid == NULL) {
 		p9_debug(ERROR, "Operating on NULL FID\n");
 		return EBADF;
@@ -2067,10 +2067,10 @@ virtfs_rename(struct vop_rename_args *ap)
 	if (fvp == tvp)
 		error = 0;
 
-	olddirvfid = virtfs_get_fid(vses->clnt, fdnode, VFID, &error);
+	olddirvfid = virtfs_get_fid(vses->clnt, fdnode, fcnp->cn_cred, VFID, &error);
 	if (error != 0)
 		goto out;
-	newdirvfid = virtfs_get_fid(vses->clnt, tdnode, VFID, &error);
+	newdirvfid = virtfs_get_fid(vses->clnt, tdnode, tcnp->cn_cred, VFID, &error);
 	if (error != 0)
 		goto out;
 

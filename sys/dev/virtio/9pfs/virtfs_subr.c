@@ -278,7 +278,7 @@ virtfs_get_full_path(struct virtfs_node *np, char ***names)
  * Retrieve fid structure corresponding to a particular
  * uid and fid type for a VirtFS node
  */
-struct p9_fid *
+static struct p9_fid *
 virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type)
 {
 	struct p9_fid *fid;
@@ -318,11 +318,10 @@ virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type)
  * and then create a new fid for this particular file by doing dir walk.
  */
 struct p9_fid *
-virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, int fid_type,
-    int *error)
+virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, struct ucred *cred,
+    int fid_type, int *error)
 {
 	uid_t uid;
-	struct thread *td;
 	struct p9_fid *fid, *oldfid;
 	struct virtfs_node *root;
 	struct virtfs_session *vses;
@@ -330,14 +329,15 @@ virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, int fid_type,
 	char **wnames = NULL;
 	uint16_t nwnames;
 
-	td = curthread;
 	oldfid = NULL;
 	vses = np->virtfs_ses;
 
 	if (vses->flags & P9_ACCESS_ANY)
 		uid = vses->uid;
+	else if (cred)
+		uid = cred->cr_uid;
 	else
-		uid = td->td_ucred->cr_uid;
+		uid = 0;
 
 	/*
 	 * Search for the fid in corresponding fid list.

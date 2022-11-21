@@ -269,7 +269,7 @@ virtfs_vget_common(struct mount *mp, struct virtfs_node *np, int flags,
 			*vpp = vp;
 			return (0);
 		}
-		error = virtfs_reload_stats_dotl(vp);
+		error = virtfs_reload_stats_dotl(vp, curthread->td_ucred);
 		if (error != 0) {
 			node = vp->v_data;
 			/* Remove stale vnode from hash list */
@@ -357,7 +357,7 @@ virtfs_vget_common(struct mount *mp, struct virtfs_node *np, int flags,
 	}
 
 	/* Init the vnode with the disk info*/
-	error = virtfs_reload_stats_dotl(vp);
+	error = virtfs_reload_stats_dotl(vp, curthread->td_ucred);
 	if (error != 0) {
 		vput(vp);
 		goto out;
@@ -514,7 +514,7 @@ virtfs_root(struct mount *mp, int lkflags, struct vnode **vpp)
 
 	p9_debug(VOPS, "%s: node=%p name=%s\n",__func__, np, np->inode.i_name);
 
-	vfid = virtfs_get_fid(clnt, np, VFID, &error);
+	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, &error);
 
 	if (error != 0) {
 		/* for root use the nobody user's fid as vfid.
@@ -554,7 +554,7 @@ virtfs_statfs(struct mount *mp __unused, struct statfs *buf)
 	clnt = vmp->virtfs_session.clnt;
 	error = 0;
 
-	vfid = virtfs_get_fid(clnt, np, VFID, &error);
+	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, &error);
 	if (error != 0) {
 		return error;
 	}
