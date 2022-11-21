@@ -475,9 +475,16 @@ virtfs_mount(struct mount *mp)
 {
 	int error;
 
-	/* No support for UPDATE for now */
-	if (mp->mnt_flag & MNT_UPDATE)
-		return (EOPNOTSUPP);
+	/*
+	 * Minimal support for MNT_UPDATE - allow changing from
+	 * readonly.
+	 */
+	if (mp->mnt_flag & MNT_UPDATE) {
+		if ((mp->mnt_flag & MNT_RDONLY) && !vfs_flagopt(mp->mnt_optnew, "ro", NULL, 0)) {
+			mp->mnt_flag &= ~MNT_RDONLY;
+		}
+		return (0);
+	}
 
 	error = p9_mount(mp);
 	if (error != 0)
