@@ -247,12 +247,13 @@ p9_client_check_return(struct p9_client *c, struct p9_req_t *req)
 	 * Note this is still not completely an error, as lookups for files
 	 * not present can hit this and return. Hence it is made a debug print.
 	 */
-	if (error != 0)
+	if (error != 0) {
 	        if (req->rc->id == P9PROTO_RERROR) {
 		        p9_debug(TRANS, "<<< RERROR (%d) %s\n", error, ename);
 	        } else if (req->rc->id == P9PROTO_RLERROR) {
 		        p9_debug(TRANS, "<<< RLERROR (%d)\n", error);
 		}
+	}
 
 	if (req->rc->id == P9PROTO_RERROR) {
 	        free(ename, M_TEMP);
