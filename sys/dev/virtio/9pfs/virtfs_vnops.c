@@ -1624,7 +1624,7 @@ virtfs_symlink(struct vop_symlink_args *ap)
 	vpp = ap->a_vpp;
 	vap = ap->a_vap;
 	cnp = ap->a_cnp;
-	symtgt = ap->a_target;
+	symtgt = (char*)(uintptr_t) ap->a_target;
 	dnp = VIRTFS_VTON(dvp);
 	vses = dnp->virtfs_ses;
 	mp = vses->virtfs_mount;
