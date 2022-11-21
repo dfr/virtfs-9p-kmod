@@ -186,7 +186,7 @@ int virtfs_vget_common(struct mount *mp, struct virtfs_node *np, int flags,
 int virtfs_node_cmp(struct vnode *vp, void *arg);
 void virtfs_dispose_node(struct virtfs_node **npp);
 void virtfs_cleanup(struct virtfs_node *vp);
-void virtfs_fid_remove_all(struct virtfs_node *np);
+void virtfs_fid_remove_all(struct virtfs_node *np, int leave_ofids);
 void virtfs_fid_remove(struct virtfs_node *np, struct p9_fid *vfid,
     int fid_type);
 void virtfs_fid_add(struct virtfs_node *np, struct p9_fid *fid,

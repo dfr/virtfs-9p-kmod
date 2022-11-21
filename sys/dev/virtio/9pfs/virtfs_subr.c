@@ -206,7 +206,7 @@ virtfs_close_session(struct mount *mp)
  * as well as destroy/clunk them.
  */
 void
-virtfs_fid_remove_all(struct virtfs_node *np)
+virtfs_fid_remove_all(struct virtfs_node *np, int leave_ofids)
 {
 	struct p9_fid *fid, *tfid;
 
@@ -215,9 +215,11 @@ virtfs_fid_remove_all(struct virtfs_node *np)
 		p9_client_clunk(fid);
 	}
 
-	STAILQ_FOREACH_SAFE(fid, &np->vofid_list, fid_next, tfid) {
-		STAILQ_REMOVE(&np->vofid_list, fid, p9_fid, fid_next);
-		p9_client_clunk(fid);
+	if (!leave_ofids) {
+		STAILQ_FOREACH_SAFE(fid, &np->vofid_list, fid_next, tfid) {
+			STAILQ_REMOVE(&np->vofid_list, fid, p9_fid, fid_next);
+			p9_client_clunk(fid);
+		}
 	}
 }
 
@@ -395,12 +397,6 @@ virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, struct ucred *cre
 	/* If we are looking for root then return it */
 	if (IS_ROOT(np))
 		return fid;
-
-	/* If file is deleted, nothing to do */
-	if ((np->flags & VIRTFS_NODE_DELETED) != 0) {
-		*error = ENOENT;
-		return NULL;
-	}
 
 	/* Get full path from root to virtfs node */
 	nwnames = virtfs_get_full_path(np, &wnames);

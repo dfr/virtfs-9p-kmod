@@ -112,7 +112,7 @@ virtfs_cleanup(struct virtfs_node *np)
 		vfs_hash_remove(vp);
 
 	/* Remove all the FID */
-	virtfs_fid_remove_all(np);
+	virtfs_fid_remove_all(np, FALSE);
 
 	/* Destroy the FID LIST locks */
 	VIRTFS_VFID_LOCK_DESTROY(np);
@@ -878,9 +878,12 @@ virtfs_reload_stats_dotl(struct vnode *vp, struct ucred *cred)
 	node = VIRTFS_VTON(vp);
 	vses = node->virtfs_ses;
 
-	vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, -1, &error);
-	if (error)
-		return error;
+	vfid = virtfs_get_fid(vses->clnt, node, cred, VOFID, P9PROTO_OREAD, &error);
+	if (vfid == NULL) {
+		vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, -1, &error);
+		if (error)
+			return error;
+	}
 
 	stat = uma_zalloc(virtfs_getattr_zone, M_WAITOK | M_ZERO);
 
@@ -1230,11 +1233,11 @@ virtfs_setattr_dotl(struct vop_setattr_args *ap)
 		p9_debug(VOPS, "%s: vp:%p td:%p uid/gid %x/%x\n", __func__,
 		    vp, td, vap->va_uid, vap->va_gid);
 
-	error = virtfs_chown(vp, vap->va_uid, vap->va_gid, cred, td);
-	p9attr->valid |= P9PROTO_SETATTR_UID | P9PROTO_SETATTR_GID |
-	     P9PROTO_SETATTR_MODE;
-	if (error)
-		goto out;
+		error = virtfs_chown(vp, vap->va_uid, vap->va_gid, cred, td);
+		p9attr->valid |= P9PROTO_SETATTR_UID | P9PROTO_SETATTR_GID |
+			P9PROTO_SETATTR_MODE;
+		if (error)
+			goto out;
 	}
 
 	/* Check for mode changes */
@@ -1242,10 +1245,10 @@ virtfs_setattr_dotl(struct vop_setattr_args *ap)
 		p9_debug(VOPS, "%s: vp:%p td:%p mode %x\n", __func__, vp, td,
 		    vap->va_mode);
 
-	error = virtfs_chmod(vp, (int)vap->va_mode, cred, td);
-	p9attr->valid |= P9PROTO_SETATTR_MODE;
-	if (error)
-	goto out;
+		error = virtfs_chmod(vp, (int)vap->va_mode, cred, td);
+		p9attr->valid |= P9PROTO_SETATTR_MODE;
+		if (error)
+			goto out;
 	}
 
 	/* Update the size of the file and update mtime */
@@ -1287,9 +1290,13 @@ virtfs_setattr_dotl(struct vop_setattr_args *ap)
 			    P9PROTO_SETATTR_MTIME_SET;
 	}
 
-	vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, -1, &error);
-	if (error)
-		goto out;
+	vfid = virtfs_get_fid(vses->clnt, node, cred, VOFID, P9PROTO_OWRITE, &error);
+	if (vfid == NULL) {
+		vfid = virtfs_get_fid(vses->clnt, node, cred, VFID, -1, &error);
+		if (error)
+			goto out;
+	}
+
 	/* Write the inode structure values into p9attr */
 	virtfs_inode_to_iattr(inode, p9attr);
 	error = p9_client_setattr(vfid, p9attr);
@@ -1574,8 +1581,8 @@ remove_common(struct virtfs_node *np, struct ucred *cred)
 	if (error != 0)
 		return (error);
 
-	/* Remove all fids associated with the vp */
-	virtfs_fid_remove_all(np);
+	/* Remove all non-open fids associated with the vp */
+	virtfs_fid_remove_all(np, TRUE);
 
 	/* Invalidate all entries of vnode from name cache and hash list. */
 	cache_purge(vp);
