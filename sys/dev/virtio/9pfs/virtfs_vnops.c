@@ -1307,6 +1307,54 @@ out:
 	return (error);
 }
 
+struct open_fid_state {
+	struct p9_fid *vofid;
+	int fflags;
+	int opened;
+};
+
+/*
+ * TODO: change this to take P9PROTO_* mode and avoid routing through
+ * VOP_OPEN, factoring out implementation of virtfs_open.
+ */
+static int
+virtfs_get_open_fid(struct vnode *vp, int fflags, struct ucred *cr, struct open_fid_state *statep)
+{
+	struct virtfs_node *np;
+	struct virtfs_session *vses;
+	struct p9_fid *vofid;
+	int mode = virtfs_uflags_mode(fflags, TRUE);
+	int error = 0;
+
+	statep->opened = FALSE;
+
+	np = VIRTFS_VTON(vp);
+	vses = np->virtfs_ses;
+	vofid = virtfs_get_fid(vses->clnt, np, cr, VOFID, mode, &error);
+	if (vofid == NULL) {
+		error = VOP_OPEN(vp, fflags, cr, curthread, NULL);
+		if (error) {
+			return (error);
+		}
+		vofid = virtfs_get_fid(vses->clnt, np, cr, VOFID, mode, &error);
+		if (vofid == NULL) {
+			return (EBADF);
+		}
+		statep->fflags = fflags;
+		statep->opened = TRUE;
+	}
+	statep->vofid = vofid;
+	return (0);
+}
+
+static void
+virtfs_release_open_fid(struct vnode *vp, struct ucred *cr, struct open_fid_state *statep)
+{
+	if (statep->opened) {
+		(void) VOP_CLOSE(vp, statep->fflags, cr, curthread);
+	}
+}
+
 /*
  * An I/O buffer is used to to do any transfer. The uio is the vfs structure we
  * need to copy data into. As long as resid is greater than zero, we call
@@ -1319,20 +1367,18 @@ virtfs_read(struct vop_read_args *ap)
 	struct vnode *vp;
 	struct uio *uio;
 	struct virtfs_node *np;
-	struct virtfs_session *vses;
 	uint64_t offset;
 	int64_t ret;
 	uint64_t resid;
 	uint32_t count;
 	int error;
-	char *io_buffer;
+	char *io_buffer = NULL;
 	uint64_t filesize;
-	struct p9_fid *vofid;
+	struct open_fid_state ostate;
 
 	vp = ap->a_vp;
 	uio = ap->a_uio;
 	np = VIRTFS_VTON(vp);
-	vses = np->virtfs_ses;
 	error = 0;
 
 	if (vp->v_type == VCHR || vp->v_type == VBLK)
@@ -1347,17 +1393,15 @@ virtfs_read(struct vop_read_args *ap)
 	if (uio->uio_offset < 0)
 		return (EINVAL);
 
-	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, P9PROTO_OREAD, &error);
-	if (vofid == NULL) {
-		p9_debug(ERROR, "Reading with NULL FID\n");
-		return EBADF;
-	}
+	error = virtfs_get_open_fid(vp, FREAD, ap->a_cred, &ostate);
+	if (error)
+		return (error);
 
 	/* where in the file are we to start reading */
 	offset = uio->uio_offset;
 	filesize = np->inode.i_size;
-	if(uio->uio_offset >= filesize)
-		return (0);
+	if (uio->uio_offset >= filesize)
+		goto out;
 
 	p9_debug(VOPS, "virtfs_read called %jd at %ju\n",
 	    (intmax_t)uio->uio_resid, (uintmax_t)uio->uio_offset);
@@ -1376,14 +1420,16 @@ virtfs_read(struct vop_read_args *ap)
 			break;
 
 		/* Copy count bytes into the uio */
-		ret = p9_client_read(vofid, offset, count, io_buffer);
+		ret = p9_client_read(ostate.vofid, offset, count, io_buffer);
 		/*
 		 * This is the only place in the entire VirtFS where we check the error
 		 * for < 0 as p9_client_read/write return the number of bytes instead of
 		 * an error code. In this case if ret is < 0, it means there is an IO error.
 		 */
-		if (ret < 0)
+		if (ret < 0) {
+			error = -ret;
 			goto out;
+		}
 
 		error = uiomove(io_buffer, ret, uio);
 
@@ -1394,10 +1440,9 @@ virtfs_read(struct vop_read_args *ap)
 	}
 	uio->uio_offset = offset;
 out:
-	if (ret < 0)
-		error = -ret;
-
-	uma_zfree(virtfs_io_buffer_zone, io_buffer);
+	if (io_buffer)
+		uma_zfree(virtfs_io_buffer_zone, io_buffer);
+	virtfs_release_open_fid(vp, ap->a_cred, &ostate);
 
 	return (error);
 }
@@ -1414,35 +1459,34 @@ virtfs_write(struct vop_write_args *ap)
 	struct vnode *vp;
 	struct uio *uio;
 	struct virtfs_node *np;
-	struct virtfs_session *vses;
 	uint64_t off, offset;
 	int64_t ret;
 	uint64_t resid;
 	uint32_t count;
 	int error, ioflag;
 	uint64_t file_size;
-	char *io_buffer;
-	struct p9_fid *vofid;
+	char *io_buffer = NULL;
+	struct open_fid_state ostate;
 
 	vp = ap->a_vp;
 	uio = ap->a_uio;
 	np = VIRTFS_VTON(vp);
-	vses = np->virtfs_ses;
 	error = 0;
 	ioflag = ap->a_ioflag;
 
-	vofid = virtfs_get_fid(vses->clnt, np, ap->a_cred, VOFID, P9PROTO_OWRITE, &error);
-	if (vofid == NULL) {
-		p9_debug(ERROR, "Writing with NULL FID\n");
-		return EBADF;
-	}
+	error = virtfs_get_open_fid(vp, FWRITE, ap->a_cred, &ostate);
+	if (error)
+		return (error);
+
 	p9_debug(VOPS, "virtfs_write called %#zx at %#jx\n",
 	    uio->uio_resid, (uintmax_t)uio->uio_offset);
 
-	if (uio->uio_offset < 0)
-		return (EINVAL);
+	if (uio->uio_offset < 0) {
+		error = EINVAL;
+		goto out;
+	}
 	if (uio->uio_resid == 0)
-		return (0);
+		goto out;
 
 	file_size = np->inode.i_size;
 
@@ -1478,10 +1522,12 @@ virtfs_write(struct vop_write_args *ap)
 		/* While count still exists, keep writing.*/
 		while (count > 0) {
 			/* Copy count bytes from the uio */
-			ret = p9_client_write(vofid, offset, count,
+			ret = p9_client_write(ostate.vofid, offset, count,
                                 io_buffer + off);
-			if (ret < 0)
+			if (ret < 0) {
+				error = -ret;
 				goto out;
+			}
 			p9_debug(VOPS, "virtfs_write called %#zx at %#jx\n",
 			    uio->uio_resid, (uintmax_t)uio->uio_offset);
 
@@ -1496,10 +1542,9 @@ virtfs_write(struct vop_write_args *ap)
 		vnode_pager_setsize(vp, uio->uio_offset + uio->uio_resid);
 	}
 out:
-	if (ret < 0)
-		error = -ret;
-
-	uma_zfree(virtfs_io_buffer_zone, io_buffer);
+	if (io_buffer)
+		uma_zfree(virtfs_io_buffer_zone, io_buffer);
+	virtfs_release_open_fid(vp, ap->a_cred, &ostate);
 
 	return (error);
 }
@@ -1865,15 +1910,9 @@ out:
 	return (error);
 }
 
-/*
- * The I/O buffer is mapped to a uio and a client_write/client_read is performed
- * the same way as virtfs_read and virtfs_write.
- */
-static int
-virtfs_strategy(struct vop_strategy_args *ap)
+static void
+virtfs_doio(struct vnode *vp, struct buf *bp, struct p9_fid *vofid, struct ucred *cr)
 {
-	struct vnode *vp;
-	struct buf *bp;
 	struct uio *uiov;
 	struct iovec io;
 	int error;
@@ -1883,31 +1922,11 @@ virtfs_strategy(struct vop_strategy_args *ap)
 	uint32_t count;
 	int64_t ret;
 	struct virtfs_node *np;
-	struct virtfs_session *vses;
 	char *io_buffer;
-	struct p9_fid *vofid;
-	struct ucred *cred;
-	int mode;
 
-	vp = ap->a_vp;
-	bp = ap->a_bp;
 	error = 0;
 	np = VIRTFS_VTON(vp);
-	vses = np->virtfs_ses;
 
-	if (bp->b_iocmd == BIO_READ) {
-		cred = bp->b_rcred;
-		mode = P9PROTO_OREAD;
-	} else {
-		cred = bp->b_wcred;
-		mode = P9PROTO_OWRITE;
-	}
-
-	vofid = virtfs_get_fid(vses->clnt, np, cred, VOFID, mode, &error);
-	if (vofid == NULL) {
-		p9_debug(ERROR, "Operating on NULL FID\n");
-		return EBADF;
-	}
 	filesize = np->inode.i_size;
 	uiov = malloc(sizeof(struct uio), M_P9UIOV, M_WAITOK);
 	uiov->uio_iov = &io;
@@ -1997,7 +2016,7 @@ virtfs_strategy(struct vop_strategy_args *ap)
 						goto out;
 
 					p9_debug(VOPS, "virtfs_strategy write called %#zx at %#jx\n",
-				    	    uiov->uio_resid, (uintmax_t)uiov->uio_offset);
+					    uiov->uio_resid, (uintmax_t)uiov->uio_offset);
                                         off += ret;
 					offset += ret;
 					count -= ret;
@@ -2027,8 +2046,43 @@ out1:
 	bufdone(bp);
 	uma_zfree(virtfs_io_buffer_zone, io_buffer);
 	free(uiov, M_P9UIOV);
+}
 
-	return (error);
+/*
+ * The I/O buffer is mapped to a uio and a client_write/client_read is performed
+ * the same way as virtfs_read and virtfs_write.
+ */
+static int
+virtfs_strategy(struct vop_strategy_args *ap)
+{
+	struct vnode *vp;
+	struct buf *bp;
+	struct ucred *cr;
+	int error;
+	struct open_fid_state ostate;
+
+	vp = ap->a_vp;
+	bp = ap->a_bp;
+	error = 0;
+
+	if (bp->b_iocmd == BIO_READ)
+		cr = bp->b_rcred;
+	else
+		cr = bp->b_wcred;
+
+	error = virtfs_get_open_fid(vp, bp->b_iocmd == BIO_READ ? FREAD : FWRITE, cr, &ostate);
+	if (error) {
+		p9_debug(ERROR, "error on open: %d\n", error);
+		bp->b_error = error;
+		bp->b_ioflags |= BIO_ERROR;
+		bufdone(bp);
+		return (0);
+	}
+
+	virtfs_doio(vp, bp, ostate.vofid, cr);
+	virtfs_release_open_fid(vp, cr, &ostate);
+
+	return (0);
 }
 
 /* Rename a file */
