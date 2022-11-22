@@ -285,11 +285,32 @@ virtfs_get_full_path(struct virtfs_node *np, char ***names)
 }
 
 /*
+ * Return TRUE if this fid can be used for the requested mode.
+ */
+static int
+virtfs_compatible_mode(struct p9_fid *fid, int mode)
+{
+	/*
+	 * Return TRUE for an exact match. For OREAD and OWRITE, allow
+	 * existing ORDWR fids to match. Only check the low two bits
+	 * of mode.
+	 *
+	 * TODO: figure out if this is correct for O_APPEND
+	 */
+	int fid_mode = fid->mode & 3;
+	if (fid_mode == mode)
+		return TRUE;
+	if (fid_mode == P9PROTO_ORDWR)
+		return (mode == P9PROTO_OREAD || mode == P9PROTO_OWRITE);
+	return FALSE;
+}
+
+/*
  * Retrieve fid structure corresponding to a particular
  * uid and fid type for a VirtFS node
  */
 static struct p9_fid *
-virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type)
+virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type, int mode)
 {
 	struct p9_fid *fid;
 
@@ -307,7 +328,7 @@ virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type)
 	case VOFID:
 		VIRTFS_VOFID_LOCK(np);
 		STAILQ_FOREACH(fid, &np->vofid_list, fid_next) {
-			if (fid->uid == uid) {
+			if (fid->uid == uid && virtfs_compatible_mode(fid, mode)) {
 				VIRTFS_VOFID_UNLOCK(np);
 				return fid;
 			}
@@ -329,7 +350,7 @@ virtfs_get_fid_from_uid(struct virtfs_node *np, uid_t uid, int fid_type)
  */
 struct p9_fid *
 virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, struct ucred *cred,
-    int fid_type, int *error)
+    int fid_type, int mode, int *error)
 {
 	uid_t uid;
 	struct p9_fid *fid, *oldfid;
@@ -355,13 +376,13 @@ virtfs_get_fid(struct p9_client *clnt, struct virtfs_node *np, struct ucred *cre
 	 * Because VOFID should have been created during the file open.
 	 * If VFID is not present in the list then we should create one.
 	 */
-	fid = virtfs_get_fid_from_uid(np, uid, fid_type);
+	fid = virtfs_get_fid_from_uid(np, uid, fid_type, mode);
 	if (fid != NULL || fid_type == VOFID)
 		return fid;
 
 	/* Check root if the user is attached */
 	root = &np->virtfs_ses->rnp;
-	fid = virtfs_get_fid_from_uid(root, uid, fid_type);
+	fid = virtfs_get_fid_from_uid(root, uid, fid_type, mode);
 	if(fid == NULL) {
 		/* Attach the user */
 		fid = p9_client_attach(clnt, NULL, NULL, uid,

@@ -519,7 +519,7 @@ virtfs_root(struct mount *mp, int lkflags, struct vnode **vpp)
 
 	p9_debug(VOPS, "%s: node=%p name=%s\n",__func__, np, np->inode.i_name);
 
-	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, &error);
+	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, -1, &error);
 
 	if (error != 0) {
 		/* for root use the nobody user's fid as vfid.
@@ -559,7 +559,7 @@ virtfs_statfs(struct mount *mp __unused, struct statfs *buf)
 	clnt = vmp->virtfs_session.clnt;
 	error = 0;
 
-	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, &error);
+	vfid = virtfs_get_fid(clnt, np, curthread->td_ucred, VFID, -1, &error);
 	if (error != 0) {
 		return error;
 	}

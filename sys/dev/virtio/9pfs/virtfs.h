@@ -192,5 +192,5 @@ void virtfs_fid_remove(struct virtfs_node *np, struct p9_fid *vfid,
 void virtfs_fid_add(struct virtfs_node *np, struct p9_fid *fid,
     int fid_type);
 struct p9_fid *virtfs_get_fid(struct p9_client *clnt,
-    struct virtfs_node *np, struct ucred *cred, int fid_type, int *error);
+    struct virtfs_node *np, struct ucred *cred, int fid_type, int mode, int *error);
 #endif /* __VIRTFS__ */
